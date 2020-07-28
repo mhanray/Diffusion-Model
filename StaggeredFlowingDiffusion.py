@@ -111,7 +111,7 @@ else:
 
 #check boundaries, reflect back in if out of bounds
 for k in range(particle_n):
-    for i in range(step_n):
+    for i in range(step_n+1):
         while np.abs(path[i,1,k])>width/2:
             if path[i,1,k]>width/2:
                 path[i,1,k]-= (path[i,1,k]-width/2)*2
@@ -124,6 +124,7 @@ for k in range(particle_n):
             if path[i,2,k]<-depth/2:
                 path[i,2,k]-= (path[i,2,k]+depth/2)*2 
 
+
 #Generate velocity array, then displacement due to velocity.
 if stagger_release==False:
     displacement=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt).cumsum(0)
@@ -135,7 +136,7 @@ else:
 #transform path using displacement array
 for k in range(particle_n):
     for i in range(step_n):
-        path[i+1,0,k]+=displacement[i,k]
+        path[i,0,k]+=displacement[i,k]
 
 #add a reference particle traveling on water surface
 reference=np.zeros((step_n+1,3,1))
