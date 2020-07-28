@@ -13,19 +13,23 @@ def animate_scatters(iteration, data, scatters, data_ref, scatter_ref):
     scatter_ref[0]._offsets3d=(data_ref[iteration,0:1,0],data_ref[iteration,1:2,0],data_ref[iteration,2:,0])
     return [scatters,scatter_ref]
 
-def stagger_path(data, release, delay, step_total, particle_total):
+def stagger_path(data, release_n, release_delay, dt, step_total, particle_total):
     staggered=data.copy()
-    for i in range(int(step_total/delay)):
-        for count in range(delay*(i), delay*(i+1)):
-            for k in range(int(release*(i+1)),int(particle_total)):
+    if dt<1:
+        release_delay=int(release_delay/dt)
+    for i in range(int(step_total/release_delay)):
+        for count in range(release_delay*(i), release_delay*(i+1)):
+            for k in range(int(release_n*(i+1)),int(particle_total)):
                 staggered[count,:,k]=0
     return staggered
 
-def stagger_velocity(velocity, release, delay, step_total, particle_total):
+def stagger_velocity(velocity, release_n, release_delay, dt, step_total, particle_total):
     staggered=velocity.copy()
-    for count in range(int(step_total/delay)):
-        for i in range(delay*(count), delay*(count+1)):
-            for k in range(int(release*(count+1)),int(particle_total)):
+    if dt<1:
+        release_delay=int(release_delay/dt)
+    for count in range(int(step_total/release_delay)):
+        for i in range(release_delay*(count), release_delay*(count+1)):
+            for k in range(int(release_n*(count+1)),int(particle_total)):
                 staggered[i,k]=0
     return staggered
 
@@ -50,33 +54,36 @@ def draw_water(length,width,depth,color):
     art3d.pathpatch_2d_to_3d(downstream, z=length, zdir="x")
 
 #set up model parameters 
-step_n=125     #seconds, number of time steps to simulate
+time=10     #seconds, length of time to simulate
+dt=0.25    #seconds, time step
 diff=7**(-3)    #m^3/s, diffusive coefficient
-dt=1    #seconds, time step
 particle_n=200   #total number of particles in simulation
+step_n=int(time/dt)  #total number of time steps 
 
 u_mean=1.4     #m/s, mean longitudinal velocity 
 u_shear=0.1     #m/s, shear velocity
 vk=0.41     #von Karman constant
 sd=np.sqrt(2*diff*dt)   #standard deviation of Gaussian distribution
 
-depth=2     #m, depth in z-axis
-width=2     #m, width in y-axis
-z_initial=1     #m, initial z location
-y_initial=1     #m, initial y location
+width=10     #m, width in y-axis
+depth=1     #m, depth in z-axis
+y_initial=5     #m, initial y location
+z_initial=0.1    #m, initial z location
 
 stagger_release=True    #Repeatedly release set number of particles after a specified delay
-release_delay=25    #seconds, delay period 
+release_delay=1    #seconds, delay period 
 release_n=50     #number of particles to be released 
 
-save=False    #save animation using FFmpeg   
+save=False   #save animation using FFmpeg   
 water_visible=True    #draw water outline in plot
 
 #check model parameters
 if step_n<=0 or diff<=0 or dt<0 or particle_n<=0 or vk<=0 or depth<=0 or width<=0 or z_initial>depth or z_initial<0 or y_initial<0 or y_initial>width:
     print('Please check model parameters')
     sys.exit()
-    
+if time%dt!=0:
+    print('Simulation time must be a multiple of the time step.')
+    sys.exit() 
 if stagger_release==True and (step_n)%(release_delay)!= 0:
     print('Total number of steps must be a multiple of the release delay.')
     sys.exit()
@@ -94,17 +101,13 @@ steps[:,0,:]=rho*np.sin(phi)*np.cos(theta)
 steps[:,1,:]=rho*np.sin(phi)*np.sin(theta)
 steps[:,2,:]=rho*np.cos(phi)
 
-#generate path and velocity arrays, staggers particles release if selected
+#generate path arrays, staggers particles release if selected
 if stagger_release==False:
-    path=steps.cumsum(0)
-    velocity=((u_mean+u_shear/vk*(np.log((path[:,2,:]+depth/2)/depth)+1))*dt).cumsum(0)
-
+    path=np.concatenate((origin,steps),0).cumsum(0)
+    
 else:
-    steps=stagger_path(steps,release_n,release_delay,step_n,particle_n)
-    path=steps.cumsum(0)
-    velocity=((u_mean+u_shear/vk*(np.log((path[:,2,:]+depth/2)/depth)+1))*dt)
-    velocity=stagger_velocity(velocity,release_n,release_delay,step_n,particle_n)
-    velocity=velocity.cumsum(0)
+    steps=stagger_path(steps, release_n, release_delay, dt,step_n, particle_n)
+    path=np.concatenate((origin,steps),0).cumsum(0)
 
 #check boundaries, reflect back in if out of bounds
 for k in range(particle_n):
@@ -121,10 +124,18 @@ for k in range(particle_n):
             if path[i,2,k]<-depth/2:
                 path[i,2,k]-= (path[i,2,k]+depth/2)*2 
 
-#transform path using velocity array
+#Generate velocity array, then displacement due to velocity.
+if stagger_release==False:
+    displacement=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt).cumsum(0)
+    
+else:
+    velocity=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt)
+    displacement=stagger_velocity(velocity, release_n, release_delay, dt, step_n, particle_n).cumsum(0)
+
+#transform path using displacement array
 for k in range(particle_n):
     for i in range(step_n):
-        path[i,0,k]+=velocity[i,k]
+        path[i+1,0,k]+=displacement[i,k]
 
 #add a reference particle traveling on water surface
 reference=np.zeros((step_n+1,3,1))
@@ -156,10 +167,9 @@ plt.title('Mean Longitudinal Flow Velocity: %d m/s' % (u_mean),y=0.96, fontsize=
 
 #visual components, draw water if selected and vary particle colors
 if water_visible==True and u_mean>0: draw_water(step_n*u_mean*dt*1.5,width,depth,'cyan')
-if stagger_release==False: coloring='orange'
-else: coloring=cm.winter(np.linspace(0,1,int(particle_n/release_n)))
+if stagger_release==False: release_n=particle_n
+coloring=cm.winter(np.linspace(0,1,int(particle_n/release_n)))
 
-print(coloring.shape)
 #initialize scatter plots
 scatters=[ax.scatter(path[0,0:1,i], path[0,1:2,i], path[0,2:,i], color=coloring[int(i/(release_n))], alpha=0.5,edgecolors='face',marker=u'o') for i in range(particle_n)]    
 scatter_ref=[ax.scatter(reference[0,0:1,0], reference[0,1:2,0], reference[0,2:,0], color='magenta', alpha=1,edgecolors='face',marker='o', s=50)] 
