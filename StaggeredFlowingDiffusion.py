@@ -11,6 +11,7 @@ def animate_scatters(iteration, data, scatters, data_ref, scatter_ref):
     for i in range(particle_n):
         scatters[i]._offsets3d=(data[iteration,0:1,i], data[iteration,1:2,i], data[iteration,2:,i])
     scatter_ref[0]._offsets3d=(data_ref[iteration,0:1,0],data_ref[iteration,1:2,0],data_ref[iteration,2:,0])
+    
     return [scatters,scatter_ref]
 
 def generate_steps():
@@ -91,6 +92,15 @@ def generate_reference():
         reference[i,0,0]+=u_origin*dt*(i)
     return reference
 
+def generate_streamline(data):
+    streamline=np.empty((step_n+1,3))
+    for i in range(step_n+1):
+        streamline[i,0]=(u_mean+u_shear/vk*(np.log((z_initial+depth/2)/depth)+1))*dt*i
+        streamline[i,1]=np.average(data[i,1,:])
+        streamline[i,2]=np.average(data[i,2,:])
+    print(streamline)
+    return streamline
+
 def draw_water(length,width,depth,color):
     water_surface=Rectangle((0,-width/2),length,width,alpha=0.1,color=color)
     water_bottom=Rectangle((0,-width/2),length,width,alpha=0.1,color=color)
@@ -130,8 +140,8 @@ diff=7**(-3)    #m^3/s, diffusive coefficient
 particle_n=200   #total number of particles in simulation
 step_n=int(time/dt)  #total number of time steps 
 
-u_mean=0     #m/s, mean longitudinal velocity 
-u_shear=0     #m/s, shear velocity
+u_mean=1.4     #m/s, mean longitudinal velocity 
+u_shear=0.1     #m/s, shear velocity
 vk=0.41     #von Karman constant
 sd=np.sqrt(2*diff*dt)   #standard deviation of Gaussian distribution
 
@@ -145,6 +155,7 @@ release_delay=2    #seconds, delay period
 release_n=50     #number of particles to be released 
 
 save=False   #save animation using FFmpeg   
+streamline_visible=False    #draw streamline when plotting 
 water_visible=True    #draw water outline in plot
 
 #check model parameters
@@ -166,6 +177,7 @@ for k in range(particle_n):
         
 #add a reference particle traveling on water surface
 reference=generate_reference()
+if streamline_visible==True:streamline=generate_streamline(path)
 
 #set up figure 
 fig = plt.figure(figsize=(10,5))
@@ -187,14 +199,16 @@ plt.suptitle(plot_title,fontsize=12)
 plt.title('Mean Longitudinal Flow Velocity: %.2f m/s' % (u_mean),y=0.96, fontsize=10)
 
 #visual components, draw water if selected and vary particle colors
-if water_visible==True and u_mean>0: draw_water(step_n*u_mean*dt*1.5,width,depth,'cyan')
 if stagger_release==False: release_n=particle_n
+if water_visible==True and u_mean>0: draw_water(step_n*u_mean*dt*1.5,width,depth,'cyan')
+if streamline_visible==True: ax.scatter(streamline[:,0:1], streamline[:,1:2], streamline[:,2:], color='red', alpha=1,edgecolors='face',marker='_')
 coloring=cm.winter(np.linspace(0,1,int(particle_n/release_n)))
 
 #initialize scatter plots
 scatters=[ax.scatter(path[0,0:1,i], path[0,1:2,i], path[0,2:,i], color=coloring[int(i/(release_n))], alpha=0.5,edgecolors='face',marker=u'o') for i in range(particle_n)]    
-scatter_ref=[ax.scatter(reference[0,0:1,0], reference[0,1:2,0], reference[0,2:,0], color='magenta', alpha=1,edgecolors='face',marker='o', s=50)] 
+scatter_ref=[ax.scatter(reference[0,0:1,0], reference[0,1:2,0], reference[0,2:,0], color='magenta', alpha=1,edgecolors='face',marker='o', s=50)]  
 iterations=step_n+1
+
 
 #animate and save video as mp4 if selected
 anim=animation.FuncAnimation(fig,animate_scatters, iterations,fargs=(path, scatters, reference, scatter_ref), interval= 250, blit=False, repeat=True, repeat_delay=5000)
