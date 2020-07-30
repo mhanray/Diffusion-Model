@@ -1,11 +1,12 @@
 import numpy as np 
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d import axes3d as p3
 from mpl_toolkits.mplot3d import art3d as art3d
-from matplotlib.patches import Rectangle
-import matplotlib.animation as animation
 import sys
+plt.rcParams['animation.ffmpeg_path'] = r'C:\Users\Ray\Documents\Misc\FFmpeg\bin\ffmpeg.exe'
 
 def animate_scatters(iteration, data, scatters, data_ref, scatter_ref):
     for i in range(particle_n):
@@ -13,25 +14,82 @@ def animate_scatters(iteration, data, scatters, data_ref, scatter_ref):
     scatter_ref[0]._offsets3d=(data_ref[iteration,0:1,0],data_ref[iteration,1:2,0],data_ref[iteration,2:,0])
     return [scatters,scatter_ref]
 
-def stagger_path(data, release_n, release_delay, dt, step_total, particle_total):
+def generate_steps():
+    origin=np.zeros((1,3,particle_n))
+    origin[:,1,:]+=y_initial-width/2
+    origin[:,2,:]+=z_initial-depth/2
+    
+    steps=np.zeros((step_n,3,particle_n))
+    rho=np.random.normal(loc=0,scale=sd,size=(step_n,particle_n))
+    theta=np.random.uniform(size=(step_n,particle_n))*2*np.pi
+    phi=np.random.uniform(size=(step_n,particle_n))*2*np.pi
+    steps[:,0,:]=rho*np.sin(phi)*np.cos(theta)
+    steps[:,1,:]=rho*np.sin(phi)*np.sin(theta)
+    steps[:,2,:]=rho*np.cos(phi)
+    
+    if stagger_release==False:
+        path=np.concatenate((origin,steps),0).cumsum(0)
+        
+    else:
+        steps=stagger_path(steps)
+        path=np.concatenate((origin,steps),0).cumsum(0)
+    
+    return path
+
+def generate_displacement(path):
+    if stagger_release==False:
+        displacement=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt).cumsum(0)
+        
+    else:
+        velocity=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt)
+        displacement=stagger_velocity(velocity).cumsum(0)
+    return displacement
+
+def check_boundaries(path):
+    for k in range(particle_n):
+        for i in range(step_n+1):
+            while np.abs(path[i,1,k])>width/2:
+                if path[i,1,k]>width/2:
+                    path[i,1,k]-= (path[i,1,k]-width/2)*2
+                if path[i,1,k]<-width/2:
+                    path[i,1,k]-= (path[i,1,k]+width/2)*2 
+                    
+            while np.abs(path[i,2,k])>depth/2:     
+                if path[i,2,k]>depth/2:
+                    path[i,2,k]-= (path[i,2,k]-depth/2)*2
+                if path[i,2,k]<-depth/2:
+                    path[i,2,k]-= (path[i,2,k]+depth/2)*2 
+    return path
+
+def stagger_path(data):
     staggered=data.copy()
     if dt<1:
-        release_delay=int(release_delay/dt)
-    for i in range(int(step_total/release_delay)):
-        for count in range(release_delay*(i), release_delay*(i+1)):
-            for k in range(int(release_n*(i+1)),int(particle_total)):
+        step_delay=int(release_delay/dt)
+    for i in range(int(step_n/step_delay)):
+        for count in range(step_delay*(i), step_delay*(i+1)):
+            for k in range(int(release_n*(i+1)),int(particle_n)):
                 staggered[count,:,k]=0
     return staggered
 
-def stagger_velocity(velocity, release_n, release_delay, dt, step_total, particle_total):
+def stagger_velocity(velocity):
     staggered=velocity.copy()
     if dt<1:
-        release_delay=int(release_delay/dt)
-    for count in range(int(step_total/release_delay)):
-        for i in range(release_delay*(count), release_delay*(count+1)):
-            for k in range(int(release_n*(count+1)),int(particle_total)):
+        step_delay=int(release_delay/dt)
+    for count in range(int(step_n/step_delay)):
+        for i in range(step_delay*(count), step_delay*(count+1)):
+            for k in range(int(release_n*(count+1)),int(particle_n)):
                 staggered[i,k]=0
     return staggered
+
+def generate_reference():
+    reference=np.zeros((step_n+1,3,1))
+    reference[:,1,:]+=y_initial-width/2
+    reference[:,2,:]+=depth/2
+    
+    u_origin=u_mean+u_shear/vk*(np.log((depth)/depth)+1)
+    for i in range(step_n+1):
+        reference[i,0,0]+=u_origin*dt*(i)
+    return reference
 
 def draw_water(length,width,depth,color):
     water_surface=Rectangle((0,-width/2),length,width,alpha=0.1,color=color)
@@ -53,9 +111,21 @@ def draw_water(length,width,depth,color):
     art3d.pathpatch_2d_to_3d(upstream, z=-0, zdir="x")
     art3d.pathpatch_2d_to_3d(downstream, z=length, zdir="x")
 
+def check_model():
+    if step_n<=0 or diff<=0 or dt<0 or particle_n<=0 or vk<=0 or depth<=0 or width<=0 or z_initial>depth or z_initial<0 or y_initial<0 or y_initial>width:
+        print('Please check model parameters.')
+        sys.exit()
+    elif time%dt!=0:
+        print('Simulation time must be a multiple of the time step.')
+        sys.exit() 
+    elif stagger_release==True and (step_n)%(release_delay)!= 0:
+        print('Total number of steps must be a multiple of the release delay.')
+        sys.exit()
+    else: return
+    
 #set up model parameters 
 time=10     #seconds, length of time to simulate
-dt=0.25    #seconds, time step
+dt=0.25   #seconds, time step
 diff=7**(-3)    #m^3/s, diffusive coefficient
 particle_n=200   #total number of particles in simulation
 step_n=int(time/dt)  #total number of time steps 
@@ -65,87 +135,37 @@ u_shear=0.1     #m/s, shear velocity
 vk=0.41     #von Karman constant
 sd=np.sqrt(2*diff*dt)   #standard deviation of Gaussian distribution
 
-width=10     #m, width in y-axis
+width=5     #m, width in y-axis
 depth=1     #m, depth in z-axis
-y_initial=5     #m, initial y location
+y_initial=2.5     #m, initial y location
 z_initial=0.1    #m, initial z location
 
 stagger_release=True    #Repeatedly release set number of particles after a specified delay
-release_delay=1    #seconds, delay period 
+release_delay=2    #seconds, delay period 
 release_n=50     #number of particles to be released 
 
 save=False   #save animation using FFmpeg   
 water_visible=True    #draw water outline in plot
 
 #check model parameters
-if step_n<=0 or diff<=0 or dt<0 or particle_n<=0 or vk<=0 or depth<=0 or width<=0 or z_initial>depth or z_initial<0 or y_initial<0 or y_initial>width:
-    print('Please check model parameters')
-    sys.exit()
-if time%dt!=0:
-    print('Simulation time must be a multiple of the time step.')
-    sys.exit() 
-if stagger_release==True and (step_n)%(release_delay)!= 0:
-    print('Total number of steps must be a multiple of the release delay.')
-    sys.exit()
+check_model()
 
-#generate particle origin and steps array taking using Gaussian distribution 
-origin=np.zeros((1,3,particle_n))
-origin[:,1,:]+=y_initial-width/2
-origin[:,2,:]+=z_initial-depth/2
+#generate particle origin with channel centre of channel at y=0,z=0, generate step array by sampling from Gaussian distribution, then combine as particle coordinates
+path=generate_steps()
 
-steps=np.zeros((step_n,3,particle_n))
-rho=np.random.normal(loc=0,scale=sd,size=(step_n,particle_n))
-theta=np.random.uniform(size=(step_n,particle_n))*2*np.pi
-phi=np.random.uniform(size=(step_n,particle_n))*2*np.pi
-steps[:,0,:]=rho*np.sin(phi)*np.cos(theta)
-steps[:,1,:]=rho*np.sin(phi)*np.sin(theta)
-steps[:,2,:]=rho*np.cos(phi)
+#check particle coordinates, reflect back in if out of bounds
+path=check_boundaries(path)
 
-#generate path arrays, staggers particles release if selected
-if stagger_release==False:
-    path=np.concatenate((origin,steps),0).cumsum(0)
-    
-else:
-    steps=stagger_path(steps, release_n, release_delay, dt,step_n, particle_n)
-    path=np.concatenate((origin,steps),0).cumsum(0)
+#generate velocity array, then displacement due to velocity.
+displacement=generate_displacement(path)
 
-#check boundaries, reflect back in if out of bounds
-for k in range(particle_n):
-    for i in range(step_n+1):
-        while np.abs(path[i,1,k])>width/2:
-            if path[i,1,k]>width/2:
-                path[i,1,k]-= (path[i,1,k]-width/2)*2
-            if path[i,1,k]<-width/2:
-                path[i,1,k]-= (path[i,1,k]+width/2)*2 
-                
-        while np.abs(path[i,2,k])>depth/2:     
-            if path[i,2,k]>depth/2:
-                path[i,2,k]-= (path[i,2,k]-depth/2)*2
-            if path[i,2,k]<-depth/2:
-                path[i,2,k]-= (path[i,2,k]+depth/2)*2 
-
-
-#Generate velocity array, then displacement due to velocity.
-if stagger_release==False:
-    displacement=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt).cumsum(0)
-    
-else:
-    velocity=((u_mean+u_shear/vk*(np.log((path[1:,2,:]+depth/2)/depth)+1))*dt)
-    displacement=stagger_velocity(velocity, release_n, release_delay, dt, step_n, particle_n).cumsum(0)
-
-#transform path using displacement array
+#transform coordinates using displacement array
 for k in range(particle_n):
     for i in range(step_n):
-        path[i,0,k]+=displacement[i,k]
-
+        path[i+1,0,k]+=displacement[i,k]
+        
 #add a reference particle traveling on water surface
-reference=np.zeros((step_n+1,3,1))
-reference[:,1,:]+=y_initial-width/2
-reference[:,2,:]+=depth/2
-
-u_origin=u_mean+u_shear/vk*(np.log((depth)/depth)+1)
-for i in range(step_n+1):
-    reference[i,0,0]+=u_origin*dt*(i)
+reference=generate_reference()
 
 #set up figure 
 fig = plt.figure(figsize=(10,5))
@@ -161,10 +181,10 @@ ax.set_xlabel('X Distance (m)')
 ax.set_ylabel('Y Distance (m)')
 ax.set_zlabel('Z Distance (m)')
 
-if stagger_release==False: plot_title= '3D Diffusion of %d Particles Over %d Seconds' % (particle_n, step_n)
-else: plot_title= '3D Diffusion of %d Particles Released Every %d Seconds' % (release_n, release_delay)
+if stagger_release==False: plot_title= '3D Diffusion of %d Particles Over %.2f Seconds' % (particle_n, time)
+else: plot_title= '3D Diffusion of %d Particles Released Every %.1f Seconds over %.1f Seconds' % (release_n, release_delay, time)
 plt.suptitle(plot_title,fontsize=12)
-plt.title('Mean Longitudinal Flow Velocity: %d m/s' % (u_mean),y=0.96, fontsize=10)
+plt.title('Mean Longitudinal Flow Velocity: %.2f m/s' % (u_mean),y=0.96, fontsize=10)
 
 #visual components, draw water if selected and vary particle colors
 if water_visible==True and u_mean>0: draw_water(step_n*u_mean*dt*1.5,width,depth,'cyan')
