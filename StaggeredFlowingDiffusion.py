@@ -98,7 +98,6 @@ def generate_streamline(data):
         streamline[i,0]=(u_mean+u_shear/vk*(np.log((z_initial+depth/2)/depth)+1))*dt*i
         streamline[i,1]=np.average(data[i,1,:])
         streamline[i,2]=np.average(data[i,2,:])
-    print(streamline)
     return streamline
 
 def draw_water(length,width,depth,color):
@@ -201,7 +200,7 @@ plt.title('Mean Longitudinal Flow Velocity: %.2f m/s' % (u_mean),y=0.96, fontsiz
 #visual components, draw water if selected and vary particle colors
 if stagger_release==False: release_n=particle_n
 if water_visible==True and u_mean>0: draw_water(step_n*u_mean*dt*1.5,width,depth,'cyan')
-if streamline_visible==True: ax.scatter(streamline[:,0:1], streamline[:,1:2], streamline[:,2:], color='red', alpha=1,edgecolors='face',marker='_')
+if streamline_visible==True: ax.plot(streamline[:,0], streamline[:,1], streamline[:,2], color='red')
 coloring=cm.winter(np.linspace(0,1,int(particle_n/release_n)))
 
 #initialize scatter plots
