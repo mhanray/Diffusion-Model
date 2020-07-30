@@ -6,7 +6,6 @@ from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d import axes3d as p3
 from mpl_toolkits.mplot3d import art3d as art3d
 import sys
-plt.rcParams['animation.ffmpeg_path'] = r'C:\Users\Ray\Documents\Misc\FFmpeg\bin\ffmpeg.exe'
 
 def animate_scatters(iteration, data, scatters, data_ref, scatter_ref):
     for i in range(particle_n):
@@ -63,8 +62,9 @@ def check_boundaries(path):
 
 def stagger_path(data):
     staggered=data.copy()
-    if dt<1:
-        step_delay=int(release_delay/dt)
+    if dt<1: step_delay=int(release_delay/dt)
+    else: step_delay=release_delay
+    
     for i in range(int(step_n/step_delay)):
         for count in range(step_delay*(i), step_delay*(i+1)):
             for k in range(int(release_n*(i+1)),int(particle_n)):
@@ -73,8 +73,8 @@ def stagger_path(data):
 
 def stagger_velocity(velocity):
     staggered=velocity.copy()
-    if dt<1:
-        step_delay=int(release_delay/dt)
+    if dt<1: step_delay=int(release_delay/dt)
+    else: step_delay=release_delay
     for count in range(int(step_n/step_delay)):
         for i in range(step_delay*(count), step_delay*(count+1)):
             for k in range(int(release_n*(count+1)),int(particle_n)):
@@ -130,17 +130,17 @@ diff=7**(-3)    #m^3/s, diffusive coefficient
 particle_n=200   #total number of particles in simulation
 step_n=int(time/dt)  #total number of time steps 
 
-u_mean=1.4     #m/s, mean longitudinal velocity 
-u_shear=0.1     #m/s, shear velocity
+u_mean=0     #m/s, mean longitudinal velocity 
+u_shear=0     #m/s, shear velocity
 vk=0.41     #von Karman constant
 sd=np.sqrt(2*diff*dt)   #standard deviation of Gaussian distribution
 
-width=5     #m, width in y-axis
-depth=1     #m, depth in z-axis
-y_initial=2.5     #m, initial y location
-z_initial=0.1    #m, initial z location
+width=2     #m, width in y-axis
+depth=2     #m, depth in z-axis
+y_initial=1     #m, initial y location
+z_initial=0.2    #m, initial z location
 
-stagger_release=True    #Repeatedly release set number of particles after a specified delay
+stagger_release=False    #Repeatedly release set number of particles after a specified delay
 release_delay=2    #seconds, delay period 
 release_n=50     #number of particles to be released 
 
